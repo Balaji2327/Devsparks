@@ -17,12 +17,13 @@ import ComplianceChecker from './components/ComplianceChecker';
 import ProductListings from './components/ProductListings';
 import OCRScanner from './components/OCRScanner';
 import Reports from './components/Reports';
-
-// 🔥 NEW: Import the actual components
 import LiveCrawlMonitor from './components/LiveCrawlMonitor';
 import ESP32Scanner from './components/ESP32Scanner';
 import BarcodeScanner from './components/BarcodeScanner';
 import EnhancedDashboard from './components/EnhancedDashboard';
+
+// Chatbot Component
+import Chatbot from './components/chatbot/Chatbot';
 
 // User App Component with Navigation
 function UserApp() {
@@ -71,6 +72,9 @@ function UserApp() {
           {renderActiveView()}
         </main>
       </div>
+      
+      {/* 🤖 Chatbot for User Portal */}
+      <Chatbot userRole="user" />
     </div>
   );
 }
@@ -93,16 +97,16 @@ function AdminApp() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Admin Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <header className="bg-gradient-to-r from-purple-600 to-indigo-600 shadow-lg sticky top-0 z-10">
         <div className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Admin Portal</h1>
-              <p className="text-sm text-gray-600">LegalMetrology Platform</p>
+              <h1 className="text-2xl font-bold text-white">Admin Portal</h1>
+              <p className="text-sm text-purple-100">Legal Metrology Platform</p>
             </div>
             <div className="flex items-center space-x-4">
-              <span className="px-3 py-1 bg-purple-100 text-purple-800 text-sm font-medium rounded-full">
-                Administrator
+              <span className="px-3 py-1 bg-white/20 text-white text-sm font-medium rounded-full backdrop-blur-sm">
+                👑 Administrator
               </span>
             </div>
           </div>
@@ -111,13 +115,13 @@ function AdminApp() {
 
       <div className="flex">
         {/* Admin Sidebar */}
-        <aside className="w-64 bg-white border-r border-gray-200 min-h-[calc(100vh-73px)]">
+        <aside className="w-64 bg-white border-r border-gray-200 min-h-[calc(100vh-73px)] shadow-sm">
           <nav className="p-4 space-y-2">
             <button
               onClick={() => setActiveView('admin-dashboard')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
                 activeView === 'admin-dashboard'
-                  ? 'bg-purple-50 text-purple-700 font-medium'
+                  ? 'bg-purple-50 text-purple-700 font-medium shadow-sm'
                   : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
@@ -129,9 +133,9 @@ function AdminApp() {
 
             <button
               onClick={() => setActiveView('user-activity')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
                 activeView === 'user-activity'
-                  ? 'bg-purple-50 text-purple-700 font-medium'
+                  ? 'bg-purple-50 text-purple-700 font-medium shadow-sm'
                   : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
@@ -160,6 +164,9 @@ function AdminApp() {
           {renderActiveView()}
         </main>
       </div>
+
+      {/* 🤖 Chatbot for Admin Portal */}
+      <Chatbot userRole="admin" />
     </div>
   );
 }
