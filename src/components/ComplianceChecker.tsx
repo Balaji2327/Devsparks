@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { Search, AlertTriangle, CheckCircle, X, ExternalLink } from "lucide-react";
+import { useAuth } from '../contexts/AuthContext';
+import { logComplianceCheck } from '../services/firestoreService';
 
 /** ---------------- Types ---------------- */
 type Violation = {
@@ -48,6 +50,7 @@ const AUTO_SANDBOX =
 
 /** ---------------- Component ---------------- */
 const ComplianceChecker: React.FC = () => {
+  const { user } = useAuth();
   const [url, setUrl] = useState("");
   const [isChecking, setIsChecking] = useState(false);
   const [results, setResults] = useState<ComplianceResult>(null);
@@ -79,9 +82,45 @@ const ComplianceChecker: React.FC = () => {
     return { ok: r.ok, data };
   };
 
+  // 🔥 Helper to log compliance check to Firebase
+  async function logCheckToFirebase(result: ComplianceResult) {
+    if (!user || !result) return;
+
+    try {
+      console.log('🔥 Logging to Firebase with userId:', user.id);
+      console.log('📝 Product:', result.productName);
+      console.log('📊 Score:', result.complianceScore);
+
+      // Extract issues from violations
+      const issues = result.violations
+        .filter(v => v.status !== 'compliant')
+        .map(v => v.description);
+
+      const isCompliant = result.complianceScore >= 80;
+
+      await logComplianceCheck(
+        user.id,
+        user.name,
+        result.productName,
+        isCompliant,
+        issues,
+        result.complianceScore
+      );
+
+      console.log('✅ Successfully logged to Firebase!');
+    } catch (error) {
+      console.error('❌ Failed to log compliance check:', error);
+      // Don't throw - we don't want to break compliance check if logging fails
+    }
+  }
+
   const handleCheck = async (targetUrl?: string) => {
     const finalUrl = (targetUrl ?? url).trim();
     if (!finalUrl) return;
+
+    console.log('🔍 Starting compliance check...');
+    console.log('👤 Current user:', user);
+    console.log('📝 User ID:', user?.id);
 
     setIsChecking(true);
     setResults(null);
@@ -109,7 +148,7 @@ const ComplianceChecker: React.FC = () => {
         description: v.ok ? `${v.field} found` : `${v.field} not found on page`,
       }));
 
-      setResults({
+      const result: ComplianceResult = {
         productName: data.productName || "Unknown product",
         platform: data.platform || "Unknown",
         complianceScore,
@@ -126,10 +165,18 @@ const ComplianceChecker: React.FC = () => {
         rating: data.rating ?? null,
         ratingCount: data.ratingCount ?? null,
         image: data.image ?? null,
-      });
+      };
+
+      setResults(result);
+
+      // 🔥 LOG TO FIREBASE immediately after setting results
+      await logCheckToFirebase(result);
+
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      setResults({
+      console.error('❌ Error during compliance check:', message);
+      
+      const errorResult: ComplianceResult = {
         productName: "Could not fetch details",
         platform: "Unknown",
         complianceScore: 0,
@@ -148,7 +195,56 @@ const ComplianceChecker: React.FC = () => {
         rating: null,
         ratingCount: null,
         image: null,
+      };
+      
+      setResults(errorResult);
+      
+      // Log failed check too
+      await logCheckToFirebase(errorResult);
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsChecking(true);
+
+    console.log('🔍 Starting compliance check...');
+    console.log('👤 Current user:', user);
+    console.log('📝 User ID being saved:', user?.id); // 🔥 Check this matches Firebase
+
+    try {
+      const response = await fetch(`${API_BASE}/api/compliance/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(results),
       });
+
+      const data = await response.json();
+      console.log('📦 Compliance response:', data);
+
+      if (data.success) {
+        setResults(data.result);
+
+        // 🔥 LOG TO FIREBASE
+        if (user) {
+          console.log('🔥 Logging to Firebase with userId:', user.id); // 🔥 Verify this
+
+          await logComplianceCheck(
+            user.id,
+            user.name,
+            results.productName,
+            data.result.isCompliant,
+            data.result.issues,
+            data.result.complianceScore
+          );
+          
+          console.log('✅ Successfully logged to Firebase!');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error during compliance check:', error);
     } finally {
       setIsChecking(false);
     }
@@ -188,7 +284,7 @@ const ComplianceChecker: React.FC = () => {
           </button>
         </div>
         <p className="text-xs text-gray-500 mt-2">
-          Tip: add <code>?mode=sandbox</code> to your product URL while testing. We’ll pass it to
+          Tip: add <code>?mode=sandbox</code> to your product URL while testing. We'll pass it to
           the backend correctly.
         </p>
       </div>
@@ -247,6 +343,7 @@ const ComplianceChecker: React.FC = () => {
               <p>• Running OCR on product images</p>
               <p>• Validating against Legal Metrology rules</p>
               <p>• Generating compliance report</p>
+              {user && <p className="text-blue-600">• Logging check to your account...</p>}
             </div>
           </div>
         </div>
@@ -280,6 +377,11 @@ const ComplianceChecker: React.FC = () => {
                         }`
                       : ""}
                   </p>
+                  {user && (
+                    <p className="text-xs text-green-600 mt-1">
+                      ✓ Saved to your compliance history
+                    </p>
+                  )}
                 </div>
               </div>
 

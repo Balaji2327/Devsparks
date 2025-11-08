@@ -9,6 +9,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import LiveScanner from "./LiveScanner";
+import { useAuth } from '../contexts/AuthContext';
+import { logOCRScan } from '../services/firestoreService';
 
 type DetectedField = {
   text: string | null;
@@ -35,6 +37,7 @@ const API_BASE =
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const OCRScanner: React.FC = () => {
+  const { user } = useAuth(); // 🔥 Get current user
   const [selectedImage, setSelectedImage] = useState<string>("");
   const [isScanning, setIsScanning] = useState(false);
   const [progress, setProgress] = useState<number>(0);
@@ -77,11 +80,11 @@ const OCRScanner: React.FC = () => {
     []
   );
 
-  // Soft progress “heartbeat” while server works
+  // Soft progress "heartbeat" while server works
   function startProgressHeartbeat() {
     stopProgressHeartbeat();
     setProgress(10);
-    // creep up to 90% over time so UI doesn’t look frozen
+    // creep up to 90% over time so UI doesn't look frozen
     progressTimerRef.current = window.setInterval(() => {
       setProgress((p) => (p < 90 ? p + 1 : p));
     }, 700);
@@ -124,6 +127,29 @@ const OCRScanner: React.FC = () => {
     }
   }
 
+  // 🔥 Helper to log OCR scan to Firebase
+  async function logScanToFirebase(data: OCRState) {
+    if (!user) return; // Only log if user is authenticated
+
+    try {
+      // Combine all extracted text into single string
+      const extractedText = data.extractedText.join('\n');
+      
+      await logOCRScan(
+        user.id,
+        user.name,
+        extractedText,
+        data.confidence || 0,
+        data.provider || provider
+      );
+      
+      console.log('✅ OCR scan logged to Firebase');
+    } catch (error) {
+      console.error('❌ Failed to log OCR scan:', error);
+      // Don't throw - we don't want to break OCR if logging fails
+    }
+  }
+
   async function callServerOCRWithFile(file: File) {
     setError(null);
     setIsScanning(true);
@@ -140,6 +166,10 @@ const OCRScanner: React.FC = () => {
 
       const data = await postWithTimeout(url, fd);
       setOcrResults(data);
+      
+      // 🔥 LOG TO FIREBASE
+      await logScanToFirebase(data);
+      
       stopProgressHeartbeat(true);
       setIsScanning(false);
     } catch (e: any) {
@@ -166,6 +196,10 @@ const OCRScanner: React.FC = () => {
       });
 
       setOcrResults(data);
+      
+      // 🔥 LOG TO FIREBASE
+      await logScanToFirebase(data);
+      
       stopProgressHeartbeat(true);
       setIsScanning(false);
     } catch (e: any) {
@@ -330,7 +364,7 @@ const OCRScanner: React.FC = () => {
         </div>
 
         <div
-          className="mt-4 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors"
+          className="mt-4 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -399,6 +433,7 @@ const OCRScanner: React.FC = () => {
               <p>• Preprocessing (grayscale, normalize, sharpen, threshold)</p>
               <p>• {ocrStepText}</p>
               <p>• Validating against Legal Metrology fields</p>
+              {user && <p className="text-blue-600">• Logging scan to your account...</p>}
             </div>
           </div>
         </div>
@@ -424,6 +459,11 @@ const OCRScanner: React.FC = () => {
                   {typeof ocrResults.ms === "number" && (
                     <span className="ml-2">
                       • Server time: {ocrResults.ms} ms
+                    </span>
+                  )}
+                  {user && (
+                    <span className="ml-2 text-green-600">
+                      • ✓ Saved to your account
                     </span>
                   )}
                 </div>

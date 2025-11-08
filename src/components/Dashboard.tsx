@@ -1,168 +1,436 @@
-import React from 'react';
-import { 
-  TrendingUp, 
-  AlertTriangle, 
-  CheckCircle, 
-  Package, 
-  Eye,
-  Download,
-  Globe
+import React, { useEffect, useState } from 'react';
+import {
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle,
+  Package,
+  ScanLine,
+  Shield,
+  Search,
+  Activity,
+  Award,
+  Target,
+  BarChart3,
+  RefreshCw,
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  getUserOCRScans,
+  getUserComplianceChecks,
+  getUserSearches,
+} from '../services/firestoreService';
 
-const Dashboard = () => {
-  const complianceData = [
-    { date: '2024-01', compliant: 78, violations: 22 },
-    { date: '2024-02', compliant: 82, violations: 18 },
-    { date: '2024-03', compliant: 85, violations: 15 },
-    { date: '2024-04', compliant: 87, violations: 13 },
-    { date: '2024-05', compliant: 89, violations: 11 },
-    { date: '2024-06', compliant: 91, violations: 9 },
-  ];
+interface UserStats {
+  totalOCRScans: number;
+  totalComplianceChecks: number;
+  totalSearches: number;
+  averageComplianceScore: number;
+  compliantProducts: number;
+  nonCompliantProducts: number;
+  recentActivity: Array<{
+    type: 'ocr' | 'compliance' | 'search';
+    description: string;
+    timestamp: Date;
+    status?: 'success' | 'warning' | 'error';
+  }>;
+}
 
-  const platformData = [
-    { platform: 'Amazon', violations: 45, color: '#FF9933' },
-    { platform: 'Flipkart', violations: 32, color: '#138808' },
-    { platform: 'Myntra', violations: 28, color: '#000080' },
-    { platform: 'Nykaa', violations: 21, color: '#FF6B6B' },
-    { platform: 'BigBasket', violations: 16, color: '#4ECDC4' },
-  ];
+const Dashboard: React.FC = () => {
+  const { user } = useAuth();
+  const [stats, setStats] = useState<UserStats>({
+    totalOCRScans: 0,
+    totalComplianceChecks: 0,
+    totalSearches: 0,
+    averageComplianceScore: 0,
+    compliantProducts: 0,
+    nonCompliantProducts: 0,
+    recentActivity: [],
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
 
-  const violationTypes = [
-    { type: 'Missing MRP', count: 89, color: '#FF6B6B' },
-    { type: 'Incorrect Units', count: 67, color: '#FFE66D' },
-    { type: 'Missing Country of Origin', count: 54, color: '#FF9933' },
-    { type: 'No Manufacturer Address', count: 43, color: '#4ECDC4' },
-    { type: 'Missing Net Quantity', count: 31, color: '#95E1D3' },
-  ];
+  const loadDashboardData = async () => {
+    if (!user) {
+      console.log('❌ Dashboard: No user found!');
+      return;
+    }
 
-  const stats = [
-    { label: 'Total Products Scanned', value: '2,847,392', icon: Package, color: 'bg-blue-500', change: '+12.3%' },
-    { label: 'Compliance Rate', value: '91.2%', icon: CheckCircle, color: 'bg-green-500', change: '+2.1%' },
-    { label: 'Violations Detected', value: '142', icon: AlertTriangle, color: 'bg-red-500', change: '-8.4%' },
-    { label: 'Platforms Monitored', value: '47', icon: Globe, color: 'bg-purple-500', change: '+3.2%' },
-  ];
+    setIsLoading(true);
+    console.log('🔄 Dashboard: Loading data for user:', user.id, user.name);
+
+    try {
+      console.log('📡 Dashboard: Fetching Firebase data...');
+      
+      const [ocrScans, complianceChecks, searches] = await Promise.all([
+        getUserOCRScans(user.id),
+        getUserComplianceChecks(user.id),
+        getUserSearches(user.id),
+      ]);
+
+      console.log('📊 Dashboard: Raw data received:', {
+        ocrScans,
+        complianceChecks,
+        searches,
+      });
+
+      console.log('📊 Dashboard: Data counts:', {
+        ocrScans: ocrScans.length,
+        complianceChecks: complianceChecks.length,
+        searches: searches.length,
+      });
+
+      const totalOCRScans = ocrScans.length;
+      const totalComplianceChecks = complianceChecks.length;
+      const totalSearches = searches.length;
+
+      console.log('📈 Stats:', { totalOCRScans, totalComplianceChecks, totalSearches });
+
+      const complianceScores = complianceChecks
+        .map((c) => c.complianceScore)
+        .filter((score) => score !== undefined && score !== null);
+    
+      const averageComplianceScore =
+        complianceScores.length > 0
+          ? Math.round(complianceScores.reduce((a, b) => a + b, 0) / complianceScores.length)
+          : 0;
+
+      console.log('💯 Compliance scores:', complianceScores);
+      console.log('📊 Average:', averageComplianceScore);
+
+      const compliantProducts = complianceChecks.filter((c) => c.isCompliant === true).length;
+      const nonCompliantProducts = complianceChecks.filter((c) => c.isCompliant === false).length;
+
+      console.log('✅ Compliant:', compliantProducts);
+      console.log('❌ Non-compliant:', nonCompliantProducts);
+
+      const recentActivity = [
+        ...ocrScans.slice(0, 10).map((scan) => ({
+          type: 'ocr' as const,
+          description: `OCR scan completed with ${scan.confidence}% confidence`,
+          timestamp: scan.timestamp,
+          status: (scan.confidence >= 80 ? 'success' : scan.confidence >= 60 ? 'warning' : 'error') as 'success' | 'warning' | 'error',
+        })),
+        ...complianceChecks.slice(0, 10).map((check) => ({
+          type: 'compliance' as const,
+          description: `Checked "${check.productName}" - ${check.complianceScore}% compliant`,
+          timestamp: check.timestamp,
+          status: (check.isCompliant ? 'success' : 'error') as 'success' | 'warning' | 'error',
+        })),
+        ...searches.slice(0, 10).map((search) => ({
+          type: 'search' as const,
+          description: `Searched for "${search.query}" - ${search.resultsCount} results`,
+          timestamp: search.timestamp,
+          status: (search.resultsCount > 0 ? 'success' : 'warning') as 'success' | 'warning' | 'error',
+        })),
+      ]
+        .filter((activity) => activity.timestamp)
+        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+        .slice(0, 10);
+
+      console.log('🕐 Recent activity:', recentActivity);
+
+      setStats({
+        totalOCRScans,
+        totalComplianceChecks,
+        totalSearches,
+        averageComplianceScore,
+        compliantProducts,
+        nonCompliantProducts,
+        recentActivity,
+      });
+
+      setLastRefresh(new Date());
+      console.log('✅ Dashboard: Stats updated successfully!');
+
+    } catch (error) {
+      console.error('❌ Dashboard: Error loading data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const getActivityIcon = (type: string) => {
+    switch (type) {
+      case 'ocr':
+        return <ScanLine className="h-4 w-4 text-purple-600" />;
+      case 'compliance':
+        return <Shield className="h-4 w-4 text-green-600" />;
+      case 'search':
+        return <Search className="h-4 w-4 text-blue-600" />;
+      default:
+        return <Activity className="h-4 w-4 text-gray-600" />;
+    }
+  };
+
+  const getActivityColor = (type: string) => {
+    switch (type) {
+      case 'ocr':
+        return 'bg-purple-50 border-purple-200';
+      case 'compliance':
+        return 'bg-green-50 border-green-200';
+      case 'search':
+        return 'bg-blue-50 border-blue-200';
+      default:
+        return 'bg-gray-50 border-gray-200';
+    }
+  };
+
+  const formatTime = (date: Date) => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <RefreshCw className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900">Compliance Overview</h2>
-          <p className="text-gray-600 mt-1">Real-time monitoring of Legal Metrology compliance across e-commerce platforms</p>
-        </div>
-        <div className="flex space-x-3">
-          <button className="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-            <Download className="h-4 w-4" />
-            <span>Export Report</span>
-          </button>
-          <button className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            <Eye className="h-4 w-4" />
-            <span>Live Monitor</span>
-          </button>
+      {/* Welcome Header with Refresh Button */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl shadow-lg p-8 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Welcome back, {user?.name}! 👋</h1>
+            <p className="text-blue-100 mt-2">
+              Here's your compliance activity overview
+            </p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <div className="text-right">
+              <p className="text-xs text-blue-100">Last refreshed</p>
+              <p className="text-sm font-medium text-white">
+                {lastRefresh.toLocaleTimeString()}
+              </p>
+            </div>
+            <button
+              onClick={loadDashboardData}
+              className="bg-white/20 hover:bg-white/30 backdrop-blur-sm px-4 py-2 rounded-lg transition-colors flex items-center space-x-2"
+            >
+              <RefreshCw className="h-5 w-5" />
+              <span className="hidden md:inline">Refresh</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className={`p-3 rounded-lg ${stat.color}`}>
-                <stat.icon className="h-6 w-6 text-white" />
-              </div>
-              <span className={`text-sm font-medium ${
-                stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {stat.change}
-              </span>
+        {/* OCR Scans */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">OCR Scans</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">
+                {stats.totalOCRScans}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">Total scans performed</p>
             </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-bold text-gray-900">{stat.value}</h3>
-              <p className="text-gray-600 text-sm">{stat.label}</p>
+            <div className="bg-purple-100 p-3 rounded-lg">
+              <ScanLine className="h-8 w-8 text-purple-600" />
             </div>
           </div>
-        ))}
-      </div>
-
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Compliance Trend */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Compliance Trend</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={complianceData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Line 
-                type="monotone" 
-                dataKey="compliant" 
-                stroke="#10B981" 
-                strokeWidth={3}
-                dot={{ fill: '#10B981', strokeWidth: 2, r: 6 }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="violations" 
-                stroke="#EF4444" 
-                strokeWidth={3}
-                dot={{ fill: '#EF4444', strokeWidth: 2, r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
         </div>
 
-        {/* Platform Violations */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Violations by Platform</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={platformData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="platform" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="violations" fill="#FF9933" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        {/* Compliance Checks */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Compliance Checks</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">
+                {stats.totalComplianceChecks}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">Products analyzed</p>
+            </div>
+            <div className="bg-green-100 p-3 rounded-lg">
+              <Shield className="h-8 w-8 text-green-600" />
+            </div>
+          </div>
+        </div>
+
+        {/* Product Searches */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Product Searches</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">
+                {stats.totalSearches}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">Search queries made</p>
+            </div>
+            <div className="bg-blue-100 p-3 rounded-lg">
+              <Search className="h-8 w-8 text-blue-600" />
+            </div>
+          </div>
+        </div>
+
+        {/* Average Compliance Score - FIXED */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Avg Compliance</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">
+                {stats.averageComplianceScore}%
+              </p>
+              <p className="text-xs text-gray-500 mt-1">Your average score</p>
+            </div>
+            <div className="bg-orange-100 p-3 rounded-lg">
+              <TrendingUp className="h-8 w-8 text-orange-600" />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Violation Types */}
-      <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-900 mb-6">Common Violation Types</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Compliance Overview */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Compliance Status Chart */}
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-md p-6 border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <BarChart3 className="h-5 w-5 mr-2 text-blue-600" />
+            Compliance Overview
+          </h3>
           <div className="space-y-4">
-            {violationTypes.map((violation, index) => (
-              <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <div 
-                    className="w-4 h-4 rounded-full"
-                    style={{ backgroundColor: violation.color }}
-                  ></div>
-                  <span className="font-medium text-gray-900">{violation.type}</span>
-                </div>
-                <span className="text-lg font-bold text-gray-900">{violation.count}</span>
+            {/* Compliant Products Bar */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700 flex items-center">
+                  <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                  Compliant Products
+                </span>
+                <span className="text-sm font-bold text-green-600">
+                  {stats.compliantProducts}
+                </span>
               </div>
-            ))}
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div
+                  className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full transition-all duration-500"
+                  style={{
+                    width: `${
+                      stats.totalComplianceChecks > 0
+                        ? (stats.compliantProducts / stats.totalComplianceChecks) * 100
+                        : 0
+                    }%`,
+                  }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Non-Compliant Products Bar */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700 flex items-center">
+                  <AlertTriangle className="h-4 w-4 text-red-600 mr-2" />
+                  Non-Compliant Products
+                </span>
+                <span className="text-sm font-bold text-red-600">
+                  {stats.nonCompliantProducts}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div
+                  className="bg-gradient-to-r from-red-500 to-red-600 h-3 rounded-full transition-all duration-500"
+                  style={{
+                    width: `${
+                      stats.totalComplianceChecks > 0
+                        ? (stats.nonCompliantProducts / stats.totalComplianceChecks) * 100
+                        : 0
+                    }%`,
+                  }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-900">
+                    Compliance Rate
+                  </p>
+                  <p className="text-xs text-blue-700 mt-1">
+                    Based on {stats.totalComplianceChecks} product checks
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-3xl font-bold text-blue-600">
+                    {stats.totalComplianceChecks > 0
+                      ? Math.round(
+                          (stats.compliantProducts / stats.totalComplianceChecks) * 100
+                        )
+                      : 0}
+                    %
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center justify-center">
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={violationTypes}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  dataKey="count"
-                >
-                  {violationTypes.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <Target className="h-5 w-5 mr-2 text-blue-600" />
+            Quick Actions
+          </h3>
+          <div className="space-y-3">
+            <button
+              onClick={() => (window.location.hash = 'ocr-scanner')}
+              className="w-full text-left p-4 bg-purple-50 rounded-lg border border-purple-200 hover:bg-purple-100 transition-colors"
+            >
+              <div className="flex items-center space-x-3">
+                <ScanLine className="h-5 w-5 text-purple-600" />
+                <div>
+                  <p className="font-medium text-gray-900">Scan Product</p>
+                  <p className="text-xs text-gray-600">Extract text with OCR</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => (window.location.hash = 'compliance-checker')}
+              className="w-full text-left p-4 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition-colors"
+            >
+              <div className="flex items-center space-x-3">
+                <Shield className="h-5 w-5 text-green-600" />
+                <div>
+                  <p className="font-medium text-gray-900">Check Compliance</p>
+                  <p className="text-xs text-gray-600">Validate product listing</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => (window.location.hash = 'product-listings')}
+              className="w-full text-left p-4 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors"
+            >
+              <div className="flex items-center space-x-3">
+                <Package className="h-5 w-5 text-blue-600" />
+                <div>
+                  <p className="font-medium text-gray-900">Search Products</p>
+                  <p className="text-xs text-gray-600">Find and analyze listings</p>
+                </div>
+              </div>
+            </button>
           </div>
         </div>
       </div>
@@ -170,31 +438,76 @@ const Dashboard = () => {
       {/* Recent Activity */}
       <div className="bg-white rounded-xl shadow-md border border-gray-100">
         <div className="p-6 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-        </div>
-        <div className="p-6">
-          <div className="space-y-4">
-            {[
-              { time: '2 minutes ago', action: 'New violation detected on Amazon', severity: 'high', product: 'Organic Tea Leaves - 250g' },
-              { time: '15 minutes ago', action: 'Compliance check completed for Flipkart', severity: 'low', product: 'Bulk scan of 1,247 products' },
-              { time: '1 hour ago', action: 'OCR extraction successful', severity: 'medium', product: 'Baby Food - Cerelac 300g' },
-              { time: '3 hours ago', action: 'Rule engine updated', severity: 'low', product: 'New MRP validation rules' },
-            ].map((activity, index) => (
-              <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
-                <div className={`w-2 h-2 rounded-full ${
-                  activity.severity === 'high' ? 'bg-red-500' : 
-                  activity.severity === 'medium' ? 'bg-yellow-500' : 'bg-green-500'
-                }`}></div>
-                <div className="flex-1">
-                  <p className="font-medium text-gray-900">{activity.action}</p>
-                  <p className="text-sm text-gray-600">{activity.product}</p>
-                </div>
-                <span className="text-xs text-gray-500">{activity.time}</span>
-              </div>
-            ))}
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+              <Activity className="h-5 w-5 mr-2 text-blue-600" />
+              Recent Activity
+            </h3>
+            <Activity className="h-5 w-5 text-gray-400" />
           </div>
         </div>
+        <div className="divide-y divide-gray-100">
+          {stats.recentActivity.length > 0 ? (
+            stats.recentActivity.map((activity, index) => (
+              <div
+                key={index}
+                className={`p-4 hover:bg-gray-50 transition-colors border-l-4 ${getActivityColor(
+                  activity.type
+                )}`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start space-x-3">
+                    <div className="mt-1">{getActivityIcon(activity.type)}</div>
+                    <div>
+                      <p className="text-sm text-gray-900">{activity.description}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatTime(activity.timestamp)}
+                      </p>
+                    </div>
+                  </div>
+                  {activity.status && (
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        activity.status === 'success'
+                          ? 'bg-green-100 text-green-700'
+                          : activity.status === 'warning'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {activity.status}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="p-12 text-center text-gray-500">
+              <Activity className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+              <p className="font-medium">No activity yet</p>
+              <p className="text-sm mt-1">
+                Start by scanning products or checking compliance
+              </p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Achievement Badge */}
+      {stats.averageComplianceScore >= 80 && stats.totalComplianceChecks >= 10 && (
+        <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-xl shadow-lg p-6 text-white">
+          <div className="flex items-center space-x-4">
+            <Award className="h-12 w-12" />
+            <div>
+              <h3 className="text-xl font-bold">Compliance Champion! 🏆</h3>
+              <p className="text-yellow-100 text-sm">
+                You've maintained an average compliance score of {stats.averageComplianceScore}%
+                across {stats.totalComplianceChecks} product checks. Keep up the great work!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
